@@ -1,0 +1,63 @@
+Questions and ideas
+---------------------
+1) Typical buffers in our use cases are extremely sparse matrices, i.e., the vast majority of the pixels
+are zero. How would we exploit this to optimize the implementation?
+
+I'd use a sparse matrix to store the summed-area-tables (https://en.wikipedia.org/wiki/Sparse_matrix)
+But this would help only with memory consumption, not performance.
+
+
+2) What changes to the code and the API need to be made if buffer dimensions can be >= 4096 x
+4096? Also, what would happen if instead of 8 bits per pixel we have 16 bits per pixel?
+
+Currently in the worst case the pixelSum can be 4096 * 4096 * 256 = 2^12 * 2^12 * 2^8 = 2^32.
+So, we must make sure that getPixelSum()'s return type can hold larger values if needed.
+Same for getNonZeroCount().
+For the constructors, same applies. We must make sure that the type of xWidth and yHeight can hold
+the desired range.
+
+If a pixel is 16bits then instead of "unisgned char", we should store and operate on std::uint16_t.
+
+
+3) What would change if we needed to find the maximum value inside the search window (instead
+of the sum or average)? You don't need to code this, but it would be interesting to know how we
+would approach this problem in general, and what is the initial estimate of its O-complexity.
+
+Naive case is O(n). I.e. we'd need to visit all values in the window to determine the maximum.
+For the generic case, for random elements (not sorted) and for local maxima it's hard (impossible?) to even
+create some helper data structure for lookup operations.
+For a less generic case one may find a better algorith than O(n).
+
+
+4) How would multi-threading change the implementation? What kinds of performance benefits
+would we expect?
+
+The calculation of summed-area-tables can be somewhat parallelized.
+E.g. it can be done with two parallel threads. One calculating rows, the other columns.
+
+PixelSum::getPixelSum() does 4 lookups into the summed-area-table. Those lookups may be done in
+parallel. But the synchronization of the threads may add some overhead that may diminish the gains.
+I guess, it all depends on the kind of multi-threading (i.e. heavy OS threads vs light GPU threads).
+
+PixelSum::getNonZeroAverage() may see the most gains from parallelization. We could do a parallel
+getPixelSum() (with 4 parallel lookups into the tables) and another parallel getNonZeroCount()
+(also with 4 parallel lookups into the tables).
+
+For the lookup operations (PixelSum::*), multithreading may help depending on the algorithm that
+does the actual lookups. If that can be parallelized then the same instance of PixelSum can
+be safely used concurrently by multiple threads (i.e. it's thread safe).
+
+
+e) How to do this on a GPU?
+
+The calculation of summed-area-tables can be somewhat parallelized with CUDA (or other tech).
+E.g. it can be done with two parallel GPU threads. One calculating rows, the other columns.
+
+If we don't use summed-area-tables then we may write kernels that just
+implement the naive solution on the GPU. I.e. parallel threads computing a reduction over the window.
+With CUDA we may use the Thrust library to make things a bit easier.
+For the getPixelSum() operation is a "reduce" kind of operation (thrust::reduce).
+The getNonZeroCount() could use thrust::count_if.
+
+In any case, we must be carefuly that synchronization or excessive/frequent data transfer between
+the host and device, or synchronization between the CUDA threads don't diminish the gains.
